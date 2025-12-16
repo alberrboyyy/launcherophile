@@ -10,7 +10,7 @@ fn create_folders() {
         "minecraft/assets",
         "minecraft/libraries",
         "minecraft/versions",
-        "minecraft/natives",
+        "minecraft/bin",
     ];
     for folder in folders {
         if !Path::new(folder).exists() {
@@ -47,7 +47,7 @@ pub async fn launch_game(username: String, version: String) {
     let library_folder = "minecraft/libraries";
     let assets_folder = "minecraft/assets";
     let version_folder = "minecraft/versions";
-    let natives_folder = "minecraft/natives";
+    let natives_folder = "minecraft/bin";
     let version = get_version(version).await;
     let libraries = get_libraries(Path::new(library_folder));
     let _separator = ":";
@@ -74,7 +74,7 @@ pub async fn launch_game(username: String, version: String) {
         &format!("-Djava.library.path={}", natives_folder),
         &format!("-Djna.tmpdir={}", natives_folder),
         &format!("-Dorg.lwjgl.system.SharedLibraryExtractPath={}", natives_folder),
-        &format!("-Dio.netty.native.workdir={}/natives", base_folder),
+        &format!("-Dio.netty.native.workdir={}", natives_folder),
         &format!("-Dminecraft.launcher.brand={}", "Kawaii"),
         &format!("-Dminecraft.launcher.version={}", 100),
         "-cp",

@@ -1,7 +1,7 @@
 use crate::commands::version::{get_versions, Version};
-use std::fs;
+use std::{env, fs};
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write, copy};
 use std::path::Path;
 use crate::commands::asset::get_assets;
 
@@ -73,28 +73,26 @@ async fn download_library(version: Version) -> tauri::async_runtime::JoinHandle<
     tauri::async_runtime::spawn(async move {
         // library path
         let library_folder = Path::new("minecraft/libraries");
+        let native_folder = Path::new("minecraft/bin");
 
         // iter on all libraries to download
         for lib in version.libraries {
             // list of artifacts to download
-            let mut artifacts = Vec::new();
-
-            // if there is an artifact we push it in the list
-            if let Some(ref art) = lib.downloads.artifact {
-                artifacts.push(art);
-            }
+            let mut natives = Vec::new();
 
             // if there is classifiers we push them in the list
             if let Some(ref classifiers) = lib.downloads.classifiers {
                 for native_artifact in classifiers.values() {
-                    artifacts.push(native_artifact);
+                    natives.push(native_artifact);
                 }
             }
 
             // iter on all artifacts
-            for artifact in artifacts {
+            if lib.downloads.artifact.is_some() {
+                let art = lib.downloads.artifact.unwrap(); 
+
                 // path to download the artifact
-                let path = library_folder.join(&artifact.path);
+                let path = library_folder.join(&art.path);
 
                 // create all dir to the path
                 if let Some(parent) = path.parent() {
@@ -105,10 +103,10 @@ async fn download_library(version: Version) -> tauri::async_runtime::JoinHandle<
 
                 // if the path doesn't already exist
                 if !path.as_path().exists() {
-                    println!("Downloading {}", artifact.url);
+                    println!("Downloading {}", art.url);
 
                     // request the bytes
-                    let req = reqwest::get(&artifact.url)
+                    let req = reqwest::get(&art.url)
                         .await
                         .expect("Failed to download library")
                         .bytes()
@@ -120,6 +118,85 @@ async fn download_library(version: Version) -> tauri::async_runtime::JoinHandle<
 
                     // write the bytes into the file
                     file.write_all(&req).expect("Failed to write to file");
+                }
+            }
+
+            if lib.downloads.classifiers.is_some() {
+                for classifier in lib.downloads.classifiers.expect("failed to get classifiers").values() {
+                    // path to download the artifact
+                    let archive_path = native_folder.join("archive.zip");
+                    // create all dir to the path
+                    if let Some(parent) = archive_path.parent() {
+                        if !parent.exists() {
+                            fs::create_dir_all(parent).expect("Failed to create parent directory");
+                        }
+                    }
+                    // if the path doesn't already exist
+                    if !archive_path.exists() {
+                        println!("Downloading {}", classifier.url);
+
+                        // request the bytes
+                        let req = reqwest::get(&classifier.url)
+                            .await
+                            .expect("Failed to download library")
+                            .bytes()
+                            .await
+                            .expect("Failed to download binary");
+
+                        // create the file
+                        let mut file = File::create(archive_path).expect("Failed to create file");
+
+                        //// ERROR TO FIX : CHANGE PERMISSION
+                        
+                        // write the bytes into the file
+                        file.write_all(&req).expect("Failed to write to file");
+
+                        let mut archive = zip::ZipArchive::new(file).unwrap();
+                        for i in 0..archive.len() {
+                            let mut f = archive.by_index(i).unwrap();
+                            let outpath = match f.enclosed_name() {
+                                Some(path) => path,
+                                None => continue,
+                            };
+
+                            {
+                                let comment = f.comment();
+                                if !comment.is_empty() {
+                                    println!("File {i} comment: {comment}");
+                                }
+                            }
+
+                            if f.is_dir() {
+                                println!("File {} extracted to \"{}\"", i, outpath.display());
+                                fs::create_dir_all(&outpath).unwrap();
+                            } else {
+                                println!(
+                                    "File {} extracted to \"{}\" ({} bytes)",
+                                    i,
+                                    outpath.display(),
+                                    f.size()
+                                );
+                                if let Some(p) = outpath.parent() {
+                                    if !p.exists() {
+                                        fs::create_dir_all(p).unwrap();
+                                    }
+                                }
+                                let mut outfile = fs::File::create(&outpath).unwrap();
+                                copy(&mut f, &mut outfile).unwrap();
+                            }
+
+                            // Get and Set permissions
+                            #[cfg(unix)]
+                            {
+                                use std::os::unix::fs::PermissionsExt;
+
+                                if let Some(mode) = f.unix_mode() {
+                                    fs::set_permissions(&outpath, fs::Permissions::from_mode(mode)).unwrap();
+                                }
+                            }
+                        }
+                                        
+                    }
                 }
             }
         }
