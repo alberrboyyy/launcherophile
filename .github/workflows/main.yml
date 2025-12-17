@@ -28,6 +28,9 @@ jobs:
           - platform: 'windows-latest'
             args: ''
             arch: 'x64'
+          - platform: 'ubuntu-22.04'
+            args: ''
+            arch: 'arm64'
 
     runs-on: ${{ matrix.platform }}
     steps:
